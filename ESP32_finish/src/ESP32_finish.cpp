@@ -9,11 +9,12 @@
 #define SS_PIN 5 // Chip Select pin for RFID reader
 #define RST_PIN 22 // RFID reader RST pin
 #define SD_CS 15  // Chip Select pin for SD card reader
+#define BUFF_LENGTH 5  // size of an array for temporary storing finish times
 
-const char* ssid     = "Start";
+const char* ssid     = "Finish";
 const char* password = "timingXyZ";
 
-const char* serverName = "http://pzi1.fesb.hr/~dsudic19/Timing/handle_post_from_start.php";
+const char* serverName = "http://pzi1.fesb.hr/~dsudic19/Timing/handle_post_from_finish.php";
 
 String apiKeyValue = "******";
 
@@ -22,15 +23,34 @@ MFRC522::MIFARE_Key key;
 byte prevUID[4]; // Init array that will store new NUID
 String UID = "";
 
-int buttonSync = 32; // button for sync on D1
+int buttonSync = 27; // button for sync on D1
 int prevSyncState = HIGH;
-int startSensor = 13; // light sensor on D2
+int finishSensor = 13; // light sensor on D2
 int beamIndicator = 21; // LED indicator on D4
-unsigned long startSyncTime;
-unsigned long start = 0;
+unsigned long finishSyncTime;
+unsigned long finish = 0;
+unsigned long interval = 1500;  // interval in which sensor is not sensing after the beam is broken
+int previousState = 0;
 
 int prevReconnState = HIGH;
 int reconn = 25;
+
+unsigned long buff[BUFF_LENGTH] = {0};  // array for temporary storing the finish times to avoid needing the rider to scan his RFID quickly before new a rider crosses the finish line
+int in = 0;   // index where new value will be stored in an array
+int out = 0;    // finish time from this index will be sent next to the server/SD card
+const int resetIndexes = 32; // button for reseting buffer indexes(in, out) on pin 32
+int prevStateRI = HIGH;
+int currentStateRI;
+unsigned long pressedTimeRI = 0;
+bool pressingRI = false;
+bool longDetectedRI = false;
+
+const int falseFinish = 33;   // button for overwriting last value in buffer in case someone crossed finish accidentally
+int prevStateFF = HIGH;
+int currentStateFF;
+unsigned long pressedTimeFF = 0;
+bool pressingFF = false;
+bool longDetectedFF = false;
 
 boolean new_tag = false;
 
@@ -44,7 +64,7 @@ unsigned long buzzerOn = 100;
 unsigned long buzzerOff = 10;
 boolean buzz_flag = true;         // permission to call RFIDScanSound function (!buzz_flag)
 int counter = 0;                  // in which phase is beeping (On(100ms)-Off(10ms)-On(100ms)-Off)
-unsigned long lastBuzz = 0; // prevMillis for buzzer indicator for beam
+unsigned long lastBuzz = 0; // prevMillis for buzzer indicator for beam and buttons
 
 unsigned long prevMillis = 0;
 unsigned long scanInterval = 3000;
@@ -52,14 +72,17 @@ unsigned long scanInterval = 3000;
 String SDlogData = "";
 File SDfile;
 
-
 void setup() {
-  Serial.begin(115200);   // arduino 9600
+  Serial.begin(115200); // arduino 9600
 
   pinMode(buttonSync, INPUT_PULLUP);
   pinMode(reconn, INPUT_PULLUP);
-  pinMode(startSensor, INPUT);
+  pinMode(finishSensor, INPUT);
   pinMode(beamIndicator, OUTPUT);
+  pinMode(resetIndexes, INPUT);
+  pinMode(falseFinish, INPUT);
+  //pinMode(14, OUTPUT); // testing w/ stopwatch
+  //digitalWrite(14, LOW); // testing w/ stopwatch
 
   ledcSetup(channel, freq, resolution); // buzzer
   ledcAttachPin(buzzer, channel); // buzzer
@@ -70,23 +93,23 @@ void setup() {
   }
   Serial.println("SD card initialization done!");
 
-  //  //  uint8_t cardType = SD.cardType();
-  //  //  if (cardType == CARD_NONE) {
-  //  //    Serial.println("No SD card attached!");
-  //  //    return;
-  //  //  }
+  //  uint8_t cardType = SD.cardType();
+  //  if (cardType == CARD_NONE) {
+  //    Serial.println("No SD card attached!");
+  //    return;
+  //  }
 
-  SDfile = SD.open("/start.txt", FILE_WRITE);
+  SDfile = SD.open("/finish.txt", FILE_WRITE);
 
   if (SDfile) {
-    SDfile.println("Chip_ID                |   Start[ms]");
+    SDfile.println("Chip_ID       |   Finish[ms]");
     SDfile.println("");
     SDfile.close();
     Serial.println("Header line write done");
   }
-  else
+  else {
     Serial.println("ERROR opening file");
-
+  }
 
   //WiFi.onEvent(ReconnectWiFi, SYSTEM_EVENT_STA_DISCONNECTED);
   WiFi.begin(ssid, password);
@@ -108,16 +131,14 @@ void setup() {
 
 }
 
-//
 //void ReconnectWiFi(WiFiEvent_t event, WiFiEventInfo_t info){
 //  Serial.print("WiFi lost connection. Reason: ");
 //  Serial.println(info.disconnected.reason);
 //  Serial.println("Trying to Reconnect");
-//  digitalWrite(beamIndicator, HIGH);
 //  WiFi.begin(ssid, password);
 //}
 
-void sendRequest() {
+void sendRequest(unsigned int finishTotal) {
   //Check WiFi connection status
   if (WiFi.status() == WL_CONNECTED) {
     HTTPClient http;
@@ -126,7 +147,7 @@ void sendRequest() {
 
     http.addHeader("Content-Type", "application/x-www-form-urlencoded");         // content-type header
 
-    String httpRequestData = "api_key=" + apiKeyValue + "&start=" + (start - startSyncTime) + "&chip_id=" + UID;  // HTTP POST request data to be send
+    String httpRequestData = "api_key=" + apiKeyValue + "&finish=" + finishTotal + "&chip_id=" + UID;  // HTTP POST request data to be send
 
     Serial.print("httpRequestData: ");
     Serial.println(httpRequestData);
@@ -155,7 +176,7 @@ void sendRequest() {
 void stringifyUID(byte *buffer, byte bufferSize) {
   UID = "";
   for (byte i = 0; i < bufferSize; i++) {
-    UID += (buffer[i] < 0x16 ? "0" : "") + String(buffer[i], HEX) + (i != 3 ? " " : ""); // format UID string "XX XX XX XX"
+    UID += (buffer[i] < 0x16 ? "0" : "") + String(buffer[i], HEX) + (i != 3 ? " " : "");  // format UID string "XX XX XX XX"
   }
   UID.toUpperCase();
 }
@@ -166,7 +187,7 @@ void getUID() {
     return;
 
   // Verify if the NUID has been readed
-  if ( !rfid.PICC_ReadCardSerial())
+  if ( ! rfid.PICC_ReadCardSerial())
     return;
 
   if (rfid.uid.uidByte[0] != prevUID[0] ||
@@ -193,10 +214,7 @@ void getUID() {
     Serial.println();
   }
   else {
-    /*new_tag = false;   --> BUG!! - ne treba ovo kod starta, onemogućava slanje zahtjeva
-                                      serveru ukoliko se isti tag skenira vise
-                                      puta zaredom, a izmedu toga ni jednom nije
-                                      doslo do prekida zrake */
+    //new_tag = false;
     Serial.println(F("Tag read previously."));
   }
 
@@ -232,9 +250,9 @@ void RFIDScanSound() {
   }
 }
 
-void log2SD() {
-  SDlogData = UID + "   |   " + String(start - startSyncTime);
-  SDfile = SD.open("/start.txt", FILE_APPEND);
+void log2SD(unsigned int finishTotal) {
+  SDlogData = UID + "   |   " + String(finishTotal);
+  SDfile = SD.open("/finish.txt", FILE_APPEND);
 
   if (SDfile) {
     SDfile.println(SDlogData);
@@ -245,60 +263,114 @@ void log2SD() {
     Serial.println("ERROR opening file");
 }
 
-//void ReconnectWiFi(){
-//  Serial.println("Reconnecting...");
-//  while(WiFi.status() != WL_CONNECTED){
-//    Serial.print(".");
-//    WiFi.begin(ssid, password);
-//  }
-//}
 
-//---------------------------------------------------------------------------------------------
 void loop() {
 
   if ((WiFi.status() != WL_CONNECTED) && (millis() - prevMillis > scanInterval)) {
-    Serial.println("Connecting...");
+
     WiFi.begin(ssid, password);
-
-    if (WiFi.status() ==  WL_CONNECTED)
-      Serial.println("Connected");
-
-
+    Serial.println("Connecting...");
     //    while (WiFi.status() != WL_CONNECTED) {
-    //      delay(500);
-    //      Serial.print(".");
+    //    delay(500);
+    //    Serial.print(".");
     //    }
-    //    if (WiFi.status() == WL_CONNECTED) {
-    //      Serial.println("");
-    //      Serial.print("Connected to WiFi network with IP Address: ");
-    //      Serial.println(WiFi.localIP());
-    //    }
+
+    if (WiFi.status() == WL_CONNECTED) {
+      Serial.println("");
+      Serial.print("Reconnected to WiFi network with IP Address: ");
+      Serial.println(WiFi.localIP());
+    }
+
     prevMillis = millis();
   }
-  
 
+  // to reset IN and OUT indexes for buff array, press and hold button for 1.5s
+  currentStateRI = digitalRead(resetIndexes);
+
+  if (prevStateRI == LOW && currentStateRI == HIGH) {
+    pressedTimeRI = millis();
+    pressingRI = true;
+    longDetectedRI = false;
+  }
+  else if (prevStateRI == HIGH && currentStateRI == LOW)
+    pressingRI = false;
+
+  if (pressingRI == true && longDetectedRI == false)
+    if (millis() - pressedTimeRI > 1500) {
+      in = 0;
+      out = 0;
+      Serial.print(in);
+      Serial.println(out);
+      longDetectedRI = true;
+      ledcWrite(channel, 3000);
+      lastBuzz = millis();
+    }
+  prevStateRI = currentStateRI;
+
+  if (millis() - lastBuzz >= 400 && longDetectedRI)
+    ledcWrite(channel, 0);
+
+
+
+  // in case of a false beam break, press button for 1.5s to overwrite last value in a buff array
+  currentStateFF = digitalRead(falseFinish);
+
+  if (prevStateFF == LOW && currentStateFF == HIGH) {
+    pressedTimeFF = millis();
+    pressingFF = true;
+    longDetectedFF = false;
+  }
+  else if (prevStateFF == HIGH && currentStateFF == LOW)
+    pressingFF = false;
+  if (pressingFF == true && longDetectedFF == false)
+    if (millis() - pressedTimeFF > 1500) {
+      in--;
+      if (in < 0)
+        in = 0;
+      longDetectedFF = true;
+      ledcWrite(channel, 3000);  // if the button is pressed for 1.5s turn the buzzer on
+      lastBuzz = millis();
+    }
+  prevStateFF = currentStateFF;
+
+  if (millis() - lastBuzz >= 400 && longDetectedFF)  // turn the buzzer off after 400ms
+    ledcWrite(channel, 0);
 
   int buttonState = digitalRead(buttonSync);
   if (buttonState == LOW && prevSyncState == HIGH) {
-    startSyncTime = millis();
-    Serial.print("sync time on start gate = ");
-    Serial.println(startSyncTime);
-
-    SDfile = SD.open("/sync_start.txt", FILE_APPEND);
-    if (SDfile) {
-      SDfile.println(startSyncTime);
-      SDfile.close();
-      Serial.println("Sync time written to SD card");
-    }
-    else
-      Serial.println("ERROR opening file");
-    //delay(1000);,
+    finishSyncTime = millis();
+    Serial.print("sync time on finish gate = ");
+    Serial.println(finishSyncTime);
+    //delay(1000);
   }
   prevSyncState = buttonState;
 
-  int sensorState_start = digitalRead(startSensor);
-  digitalWrite(beamIndicator, !sensorState_start);  // if beam is broken, turn LED on
-  //digitalWrite(12, !sensorState_start); // testing w/ stopwatch
+  int sensorState_finish = digitalRead(finishSensor);
+  digitalWrite(beamIndicator, !sensorState_finish);  // if beam is broken, turn LED on
+  //digitalWrite(14, !sensorState_finish); // testing w/ stopwatch
+
+  if (sensorState_finish == LOW && sensorState_finish != previousState && (millis() - finish) > interval) {  // to avoid multiple beam interruptions as the bicycle passes trough finish line
+    finish = millis();
+    Serial.print("finish time: ");
+    Serial.println(finish);
+    Serial.print("--> Real finish time (finish - sync): ");
+    Serial.println(finish - finishSyncTime);
+    //sendRequest();
+    //delay(1000);
+    ledcWrite(channel, 3000);
+    lastBuzz = millis();
+
+    if (in == BUFF_LENGTH)
+      in = 0;
+    buff[in++] = finish - finishSyncTime;  // temporary store the finish time in an array
+
+    for (int i = 0; i < BUFF_LENGTH; i++)  // for watching changes in the buffer
+      Serial.println(buff[i]);
+  }
+  previousState = sensorState_finish;
+
+  if (millis() - lastBuzz > 700)
+    ledcWrite(channel, 0);
 
   getUID();
 
@@ -306,23 +378,14 @@ void loop() {
     RFIDScanSound();
   }
 
+  if (new_tag == true) {
+    if (out == BUFF_LENGTH)
+      out = 0;
 
-  if (sensorState_start == LOW && new_tag == true) { // if the beam is broken and a NEW tag already scanned
-    start = millis();
-    Serial.print("start time: ");
-    Serial.println(start);
-    Serial.print("sync time: ");
-    Serial.println(startSyncTime);
-    Serial.print("--> Real start time (start - sync): ");
-    Serial.println(start - startSyncTime);
-    ledcWrite(channel, 3000);
-    lastBuzz = millis();
-    log2SD();  // log data to SD card
-    sendRequest();
-    //flag = true;
-    //delay(1000);
+    log2SD(buff[out]); // log data to SD card
+    sendRequest(buff[out]);    // send data only when a tag is scanned after the beam has been broken
+    Serial.println(buff[out]);
+    out++;
     new_tag = false;
   }
-  if (millis() - lastBuzz > 400 && buzz_flag)
-    ledcWrite(channel, 0);    // turn the buzzer for 400ms if the beam has been broken
 }
