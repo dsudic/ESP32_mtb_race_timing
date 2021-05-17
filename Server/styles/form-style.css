@@ -1,0 +1,55 @@
+body{
+  background-color: #e0e6e6;
+}
+input {
+  width: 100%;
+  padding: 12px 20px;
+  margin: 8px 0;
+  display: inline-block;
+  border: 1px solid #ccc;
+  border-radius: 5px;
+  box-sizing: border-box;
+}
+
+button {
+  width: 100%;
+  background-color:#78cccf;
+  color: #5c6061;
+  padding: 14px 20px;
+  margin: 8px 0;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer; 
+}
+
+#del_times, #del_riders, #del_fastest {
+  width: auto;
+  background-color: #bbe0e1;
+}
+
+button:hover {
+  background-color: #51b2b5;
+}
+
+div {
+  border-radius: 5px;
+  background-color: #f2f2f2;
+  padding: 20px;
+  max-width: 500px;
+  margin: auto;
+}
+
+input.chip_id {
+  width: 35px;
+  padding: 12px 0px;
+ text-align: center;
+}
+
+h1{
+    text-align: center;
+    color: #5c6061;
+}
+
+.far{
+  padding-right: 5px;
+}

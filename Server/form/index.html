@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Add Record Form</title>
+
+    <link rel="stylesheet" type="text/css" href="../styles/form-style.css">
+    <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.5.0/css/all.css"
+    integrity="sha384-B4dIYHKNBt8Bc12p+WXckhzcICo0wtJAoU8YZTY5qE0Id1GSseTk6S+L3BlXeVIU" crossorigin="anonymous">
+</head>
+
+<body>
+    <h1><i class="fas fa-user-plus"></i> Add New Rider</h1>
+    <div>
+        <form action="handle-form.php" method="post" autocomplete="off">
+            <div>
+            <p>
+                <i class="fas fa-user"></i>
+                <label for="name"> Name: </label>
+                <input type="text" name="name" id="name" placeholder="Name" >
+            </p>
+            <p>
+                <label for="club"> Club: </label>
+                <input type="text" name="club" id="club" placeholder="Club">
+            </p>
+            <p>
+                <i class="fas fa-hashtag"></i>
+                <label for="start_no"> Start No.: </label>
+                <input type="number" name="start_no" id="start_no" min="1" placeholder="Start number" required> 
+            </p>
+            <p>
+                <i class="fas fa-fingerprint"></i>
+                <label> Chip ID: </label>
+                <input type="text" name="p1" class="chip_id" maxlength="2" autocomplete="new-password"> 
+                <input type="text" name="p2" class="chip_id" maxlength="2" autocomplete="new-password"> 
+                <input type="text" name="p3" class="chip_id" maxlength="2" autocomplete="new-password">  
+                <input type="text" name="p4" class="chip_id" maxlength="2" autocomplete="new-password">
+                <input type="text" name="p5" class="chip_id" maxlength="2" autocomplete="new-password">
+                <input type="text" name="p6" class="chip_id" maxlength="2" autocomplete="new-password"> 
+                <input type="text" name="p7" class="chip_id" maxlength="2" autocomplete="new-password"> 
+            </p>
+            <button type="submit" ><i class="far fa-paper-plane"></i>Submit</button>
+            <button type="submit" id = "del_times" name = "delete_times" formnovalidate="formnovalidate">Delete times</button>
+            <button type="submit" id = "del_riders" name = "delete_riders" formnovalidate="formnovalidate">Delete riders</button>
+            <button type="submit" id = "del_fastest" name = "delete_fastest" formnovalidate="formnovalidate">Delete fastest</button>
+        </div>
+        </form>
+    </div>
+
+  <script> src = "../js/script.js" </script> 
+</body>
+
+</html>
