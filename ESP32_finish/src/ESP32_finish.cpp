@@ -9,12 +9,12 @@
 #define SS_PIN 5 // Chip Select pin for RFID reader
 #define RST_PIN 22 // RFID reader RST pin
 #define SD_CS 15  // Chip Select pin for SD card reader
-#define BUFF_LENGTH 5  // size of an array for temporary storing finish times
+#define BUFF_LENGTH 10  // size of an array for temporary storing finish times
 
 const char* ssid     = "Finish";
 const char* password = "timingXyZ";
 
-const char* serverName = "http://pzi1.fesb.hr/~dsudic19/Timing/handle_post_from_finish.php";
+const char* serverName = "http://pzi1.fesb.hr/~dsudic19/Timing/handle_post_from_finish.php"; //http://pzi1.fesb.hr/~dsudic19/test/php/handle-form.php  http://pzi1.fesb.hr/~dsudic19/Timing-server/php/handle_post.php
 
 String apiKeyValue = "******";
 
@@ -29,7 +29,7 @@ int finishSensor = 13; // light sensor on D2
 int beamIndicator = 21; // LED indicator on D4
 unsigned long finishSyncTime;
 unsigned long finish = 0;
-unsigned long interval = 1500;  // interval in which sensor is not sensing after the beam is broken
+unsigned long interval = 1000;  // interval in which sensor is not sensing after the beam is broken
 int previousState = 0;
 
 int prevReconnState = HIGH;
@@ -66,11 +66,10 @@ boolean buzz_flag = true;         // permission to call RFIDScanSound function (
 int counter = 0;                  // in which phase is beeping (On(100ms)-Off(10ms)-On(100ms)-Off)
 unsigned long lastBuzz = 0; // prevMillis for buzzer indicator for beam and buttons
 
-unsigned long prevMillis = 0;
-unsigned long scanInterval = 3000;
-
 String SDlogData = "";
 File SDfile;
+
+int WiFiLED = 2;
 
 void setup() {
   Serial.begin(115200); // arduino 9600
@@ -81,15 +80,14 @@ void setup() {
   pinMode(beamIndicator, OUTPUT);
   pinMode(resetIndexes, INPUT);
   pinMode(falseFinish, INPUT);
-  //pinMode(14, OUTPUT); // testing w/ stopwatch
-  //digitalWrite(14, LOW); // testing w/ stopwatch
+  pinMode(WiFiLED, OUTPUT);
 
   ledcSetup(channel, freq, resolution); // buzzer
   ledcAttachPin(buzzer, channel); // buzzer
 
   if (!SD.begin(SD_CS)) {
     Serial.println("SD card initialization failed!");
-    return; // ili while(1);
+    return;
   }
   Serial.println("SD card initialization done!");
 
@@ -99,9 +97,10 @@ void setup() {
   //    return;
   //  }
 
-  SDfile = SD.open("/finish.txt", FILE_WRITE);
+  SDfile = SD.open("/finish.txt", FILE_APPEND);
 
   if (SDfile) {
+    SDfile.println("-----------------------------------------------");
     SDfile.println("Chip_ID       |   Finish[ms]");
     SDfile.println("");
     SDfile.close();
@@ -130,13 +129,6 @@ void setup() {
   else Serial.println("Not connected!");
 
 }
-
-//void ReconnectWiFi(WiFiEvent_t event, WiFiEventInfo_t info){
-//  Serial.print("WiFi lost connection. Reason: ");
-//  Serial.println(info.disconnected.reason);
-//  Serial.println("Trying to Reconnect");
-//  WiFi.begin(ssid, password);
-//}
 
 void sendRequest(unsigned int finishTotal) {
   //Check WiFi connection status
@@ -230,21 +222,18 @@ void RFIDScanSound() {
 
   if (millis() - previousMillis >= buzzerOn && counter == 0) {
     ledcWrite(channel, 0);
-    //onn = false;
     previousMillis = millis();
     counter++;
   }
 
   if ((millis() - previousMillis) >= buzzerOff && counter == 1) {
     ledcWriteTone(channel, 3000);
-    //onn = true;
     previousMillis = millis();
     counter++;
   }
 
   if ((millis() - previousMillis) > buzzerOn && counter == 2) {
     ledcWrite(channel, 0);
-    //onn = false;
     buzz_flag = true;
     counter = 0;
   }
@@ -263,26 +252,27 @@ void log2SD(unsigned int finishTotal) {
     Serial.println("ERROR opening file");
 }
 
-
+//---------------------------------------------------------------------------------------------
 void loop() {
 
-  if ((WiFi.status() != WL_CONNECTED) && (millis() - prevMillis > scanInterval)) {
+  int reconnState = digitalRead(reconn);
+  if (reconnState == LOW) {
+    if (WiFi.status() != WL_CONNECTED) {
 
-    WiFi.begin(ssid, password);
-    Serial.println("Connecting...");
-    //    while (WiFi.status() != WL_CONNECTED) {
-    //    delay(500);
-    //    Serial.print(".");
-    //    }
-
-    if (WiFi.status() == WL_CONNECTED) {
-      Serial.println("");
-      Serial.print("Reconnected to WiFi network with IP Address: ");
-      Serial.println(WiFi.localIP());
+      Serial.println("Connecting...");
+      WiFi.begin(ssid, password);
+      int WLcount = 0;
+      while (WiFi.status() != WL_CONNECTED && WLcount < 200) {
+        delay(100);
+        //Serial.printf( "\tSSID = %s\n"   , WiFi.SSID().c_str() );
+        //Serial.printf( "\tPSK  = %s\n\n" , WiFi.psk().c_str()  );
+        Serial.print(".");
+        ++WLcount;
+      }
     }
-
-    prevMillis = millis();
   }
+
+  digitalWrite(WiFiLED, (WiFi.status() != WL_CONNECTED) ? HIGH : LOW);
 
   // to reset IN and OUT indexes for buff array, press and hold button for 1.5s
   currentStateRI = digitalRead(resetIndexes);
@@ -341,7 +331,17 @@ void loop() {
     finishSyncTime = millis();
     Serial.print("sync time on finish gate = ");
     Serial.println(finishSyncTime);
-    //delay(1000);
+
+    // log sync times on sd card
+    String SDlog = "sync:" + String(finishSyncTime);
+    SDfile = SD.open("/log_f.txt", FILE_APPEND);
+    if (SDfile) {
+      SDfile.println(SDlog);
+      SDfile.close();
+      Serial.println("Sync time written to SD card");
+    }
+    else
+      Serial.println("ERROR opening file");
   }
   prevSyncState = buttonState;
 
@@ -364,8 +364,19 @@ void loop() {
       in = 0;
     buff[in++] = finish - finishSyncTime;  // temporary store the finish time in an array
 
-    for (int i = 0; i < BUFF_LENGTH; i++)  // for watching changes in the buffer
-      Serial.println(buff[i]);
+    //    for (int i = 0; i < BUFF_LENGTH; i++)  // for watching changes in the buffer
+    //      Serial.println(buff[i]);
+
+    String SDlog2 = "break:" + String(finish - finishSyncTime);
+    SDfile = SD.open("/log_f.txt", FILE_APPEND);
+
+    if (SDfile) {
+      SDfile.println(SDlog2);
+      SDfile.close();
+      Serial.println("Sync time written to SD card");
+    }
+    else
+      Serial.println("ERROR opening file");
   }
   previousState = sensorState_finish;
 

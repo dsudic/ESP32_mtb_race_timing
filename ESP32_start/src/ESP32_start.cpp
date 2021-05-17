@@ -13,7 +13,7 @@
 const char* ssid     = "Start";
 const char* password = "timingXyZ";
 
-const char* serverName = "http://pzi1.fesb.hr/~dsudic19/Timing/handle_post_from_start.php";
+const char* serverName = "http://pzi1.fesb.hr/~dsudic19/Timing/handle_post_from_start.php"; //http://pzi1.fesb.hr/~dsudic19/test/php/handle-form.php  http://pzi1.fesb.hr/~dsudic19/Timing-server/php/handle_post.php
 
 String apiKeyValue = "******";
 
@@ -46,12 +46,10 @@ boolean buzz_flag = true;         // permission to call RFIDScanSound function (
 int counter = 0;                  // in which phase is beeping (On(100ms)-Off(10ms)-On(100ms)-Off)
 unsigned long lastBuzz = 0; // prevMillis for buzzer indicator for beam
 
-unsigned long prevMillis = 0;
-unsigned long scanInterval = 3000;
-
 String SDlogData = "";
 File SDfile;
 
+int WiFiLED = 2;
 
 void setup() {
   Serial.begin(115200);   // arduino 9600
@@ -60,13 +58,14 @@ void setup() {
   pinMode(reconn, INPUT_PULLUP);
   pinMode(startSensor, INPUT);
   pinMode(beamIndicator, OUTPUT);
+  pinMode(WiFiLED, OUTPUT);
 
   ledcSetup(channel, freq, resolution); // buzzer
   ledcAttachPin(buzzer, channel); // buzzer
 
   if (!SD.begin(SD_CS)) {
     Serial.println("SD card initialization failed!");
-    return; // ili while(1);
+    return;
   }
   Serial.println("SD card initialization done!");
 
@@ -76,9 +75,10 @@ void setup() {
   //  //    return;
   //  //  }
 
-  SDfile = SD.open("/start.txt", FILE_WRITE);
+  SDfile = SD.open("/start.txt", FILE_APPEND);
 
   if (SDfile) {
+    SDfile.println("-----------------------------------------------");
     SDfile.println("Chip_ID                |   Start[ms]");
     SDfile.println("");
     SDfile.close();
@@ -107,15 +107,6 @@ void setup() {
   else Serial.println("Not connected!");
 
 }
-
-//
-//void ReconnectWiFi(WiFiEvent_t event, WiFiEventInfo_t info){
-//  Serial.print("WiFi lost connection. Reason: ");
-//  Serial.println(info.disconnected.reason);
-//  Serial.println("Trying to Reconnect");
-//  digitalWrite(beamIndicator, HIGH);
-//  WiFi.begin(ssid, password);
-//}
 
 void sendRequest() {
   //Check WiFi connection status
@@ -212,21 +203,18 @@ void RFIDScanSound() {
 
   if (millis() - previousMillis >= buzzerOn && counter == 0) {
     ledcWrite(channel, 0);
-    //onn = false;
     previousMillis = millis();
     counter++;
   }
 
   if ((millis() - previousMillis) >= buzzerOff && counter == 1) {
     ledcWriteTone(channel, 3000);
-    //onn = true;
     previousMillis = millis();
     counter++;
   }
 
   if ((millis() - previousMillis) > buzzerOn && counter == 2) {
     ledcWrite(channel, 0);
-    //onn = false;
     buzz_flag = true;
     counter = 0;
   }
@@ -245,45 +233,35 @@ void log2SD() {
     Serial.println("ERROR opening file");
 }
 
-//void ReconnectWiFi(){
-//  Serial.println("Reconnecting...");
-//  while(WiFi.status() != WL_CONNECTED){
-//    Serial.print(".");
-//    WiFi.begin(ssid, password);
-//  }
-//}
-
 //---------------------------------------------------------------------------------------------
 void loop() {
 
-  if ((WiFi.status() != WL_CONNECTED) && (millis() - prevMillis > scanInterval)) {
-    Serial.println("Connecting...");
-    WiFi.begin(ssid, password);
+  int reconnState = digitalRead(reconn);
+  if (reconnState == LOW) {
+    if (WiFi.status() != WL_CONNECTED) {
 
-    if (WiFi.status() ==  WL_CONNECTED)
-      Serial.println("Connected");
-
-
-    //    while (WiFi.status() != WL_CONNECTED) {
-    //      delay(500);
-    //      Serial.print(".");
-    //    }
-    //    if (WiFi.status() == WL_CONNECTED) {
-    //      Serial.println("");
-    //      Serial.print("Connected to WiFi network with IP Address: ");
-    //      Serial.println(WiFi.localIP());
-    //    }
-    prevMillis = millis();
+      Serial.println("Connecting...");
+      WiFi.begin(ssid, password);
+      int WLcount = 0;
+      while (WiFi.status() != WL_CONNECTED && WLcount < 200) {
+        delay(100);
+        //Serial.printf( "\tSSID = %s\n"   , WiFi.SSID().c_str() );
+        //Serial.printf( "\tPSK  = %s\n\n" , WiFi.psk().c_str()  );
+        Serial.print(".");
+        ++WLcount;
+      }
+    }
   }
-  
 
+  digitalWrite(WiFiLED, (WiFi.status() != WL_CONNECTED) ? HIGH : LOW);
 
   int buttonState = digitalRead(buttonSync);
   if (buttonState == LOW && prevSyncState == HIGH) {
     startSyncTime = millis();
     Serial.print("sync time on start gate = ");
     Serial.println(startSyncTime);
-
+    
+    // log sync times on sd card
     SDfile = SD.open("/sync_start.txt", FILE_APPEND);
     if (SDfile) {
       SDfile.println(startSyncTime);
@@ -292,7 +270,6 @@ void loop() {
     }
     else
       Serial.println("ERROR opening file");
-    //delay(1000);,
   }
   prevSyncState = buttonState;
 
