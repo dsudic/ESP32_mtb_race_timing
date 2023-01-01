@@ -22,7 +22,7 @@ MFRC522::MIFARE_Key key;
 byte prevUID[4]; // Init array that will store new NUID
 String UID = "";
 
-int buttonSync = 32; // button for sync on D1
+int buttonSync = 27; // button for sync on D1
 int prevSyncState = HIGH;
 int startSensor = 13; // light sensor on D2
 int beamIndicator = 21; // LED indicator on D4
