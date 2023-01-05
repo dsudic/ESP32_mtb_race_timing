@@ -24,7 +24,7 @@ byte prevUID[4];               // Init array that will store new NUID
 String UID = "";
 
 int buttonSync = 27;           // Button for sync on D1
-int prevSyncState = HIGH;
+int prevSyncState = LOW;
 int finishSensor = 13;         // Light sensor on D2
 int beamIndicator = 21;        // LED indicator on D4
 unsigned long finishSyncTime;
@@ -32,7 +32,7 @@ unsigned long finish = 0;
 unsigned long interval = 1000; // Interval in which sensor is not sensing after the beam is broken
 int previousState = 0;
 
-int prevReconnState = HIGH;
+int prevReconnState = LOW;
 int reconn = 25; // Button for reconnecting to the network
 
 unsigned long buff[BUFF_LENGTH] = {0}; // Array for temporary storing the finish times to avoid needing the rider to scan his RFID quickly before new a rider crosses the finish line
@@ -74,8 +74,8 @@ int WiFiLED = 2;
 void setup() {
   Serial.begin(115200); // Arduino 9600
 
-  pinMode(buttonSync, INPUT_PULLUP);
-  pinMode(reconn, INPUT_PULLUP);
+  pinMode(buttonSync, INPUT);
+  pinMode(reconn, INPUT);
   pinMode(finishSensor, INPUT);
   pinMode(beamIndicator, OUTPUT);
   pinMode(resetIndexes, INPUT);
@@ -262,7 +262,7 @@ void log2SD(unsigned int finishTotal) {
 void loop() {
 
   int reconnState = digitalRead(reconn);
-  if (reconnState == LOW) {
+  if (reconnState == HIGH && prevReconnState == LOW) {
     if (WiFi.status() != WL_CONNECTED) {
 
       Serial.println("Connecting...");
@@ -277,6 +277,7 @@ void loop() {
       }
     }
   }
+  prevReconnState = reconnState;
 
   digitalWrite(WiFiLED, (WiFi.status() != WL_CONNECTED) ? HIGH : LOW);
 
@@ -333,7 +334,7 @@ void loop() {
     ledcWrite(channel, 0);
 
   int buttonState = digitalRead(buttonSync);
-  if (buttonState == LOW && prevSyncState == HIGH) {
+  if (buttonState == HIGH && prevSyncState == LOW) {
     finishSyncTime = millis();
     Serial.print("sync time on finish gate = ");
     Serial.println(finishSyncTime);

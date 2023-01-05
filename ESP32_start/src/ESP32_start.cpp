@@ -23,13 +23,13 @@ byte prevUID[4];               // Init array that will store new NUID
 String UID = "";
 
 int buttonSync = 27;    // Button for sync on D1
-int prevSyncState = HIGH;
+int prevSyncState = LOW;
 int startSensor = 13;   // Light sensor on D2
 int beamIndicator = 21; // LED indicator on D4
 unsigned long startSyncTime;
 unsigned long start = 0;
 
-int prevReconnState = HIGH;
+int prevReconnState = LOW;
 int reconn = 25; // Button for reconnecting to the network
 
 boolean new_tag = false;
@@ -54,8 +54,8 @@ int WiFiLED = 2;
 void setup() {
   Serial.begin(115200); // Arduino 9600
 
-  pinMode(buttonSync, INPUT_PULLUP);
-  pinMode(reconn, INPUT_PULLUP);
+  pinMode(buttonSync, INPUT);
+  pinMode(reconn, INPUT);
   pinMode(startSensor, INPUT);
   pinMode(beamIndicator, OUTPUT);
   pinMode(WiFiLED, OUTPUT);
@@ -243,7 +243,7 @@ void log2SD() {
 void loop() {
 
   int reconnState = digitalRead(reconn);
-  if (reconnState == LOW) {
+  if (reconnState == HIGH && prevReconnState == LOW) {
     if (WiFi.status() != WL_CONNECTED) {
 
       Serial.println("Connecting...");
@@ -258,11 +258,12 @@ void loop() {
       }
     }
   }
+  prevReconnState = reconnState;
 
   digitalWrite(WiFiLED, (WiFi.status() != WL_CONNECTED) ? HIGH : LOW);
 
   int buttonState = digitalRead(buttonSync);
-  if (buttonState == LOW && prevSyncState == HIGH) {
+  if (buttonState == HIGH && prevSyncState == LOW) {
     startSyncTime = millis();
     Serial.print("sync time on start gate = ");
     Serial.println(startSyncTime);
